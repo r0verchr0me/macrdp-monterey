@@ -459,7 +459,17 @@ fn mirror_display_index(display_ids: &[u32], main_id: u32) -> Option<usize> {
 /// mean Screen Recording permission is missing — that's a setup problem the
 /// user needs to see, not silently paper over.
 pub async fn primary_display_size() -> Result<Option<(u16, u16)>> {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "monterey"))]
+    {
+        use anyhow::Context;
+        let display = core_graphics::display::CGDisplay::main();
+        let mode = display.display_mode().context("no active display mode")?;
+        return Ok(Some((
+            u16::try_from(mode.pixel_width())?,
+            u16::try_from(mode.pixel_height())?,
+        )));
+    }
+    #[cfg(all(target_os = "macos", not(feature = "monterey")))]
     {
         use anyhow::{anyhow, Context};
         use screencapturekit::async_api::AsyncSCShareableContent;
@@ -843,7 +853,10 @@ impl CaptureDisplay {
         width: u16,
         height: u16,
     ) -> Result<Box<dyn RdpServerDisplayUpdates>> {
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "monterey"))]
+        let inner: Box<dyn RdpServerDisplayUpdates + Send> =
+            Box::new(monterey::LegacyUpdates::new(self, width, height)?);
+        #[cfg(all(target_os = "macos", not(feature = "monterey")))]
         let inner: Box<dyn RdpServerDisplayUpdates + Send> = Box::new(
             macos::ScreenCaptureUpdates::start(
                 width,
@@ -935,7 +948,7 @@ fn split_strips(x: u16, y: u16, w: u16, h: u16) -> Vec<(u16, u16, u16, u16)> {
     out
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 mod macos {
     use super::*;
 
@@ -2096,3 +2109,6 @@ mod tests {
         assert!(updates.next_update().await.unwrap().is_none());
     }
 }
+
+#[cfg(all(target_os = "macos", feature = "monterey"))]
+mod monterey;

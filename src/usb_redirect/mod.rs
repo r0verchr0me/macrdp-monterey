@@ -184,7 +184,7 @@ fn drive_device(handle: UsbHandle) {
     });
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 mod imp {
     use std::collections::{HashMap, HashSet};
     use std::os::raw::{c_int, c_void};
@@ -660,7 +660,7 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), feature = "monterey"))]
 mod imp {
     use ironrdp_server::UsbHandle;
 

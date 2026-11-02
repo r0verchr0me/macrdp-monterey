@@ -19,3 +19,6 @@ Cargo.lock.bak
 
 # Soak run logs (scripts/soak-lossy.sh)
 /soak-lossy-*.log
+
+# Generated Monterey application bundle
+/dist/monterey/

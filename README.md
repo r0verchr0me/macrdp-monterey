@@ -1,3 +1,23 @@
+# macrdp Monterey
+
+**Experimental fork of [clintcan/macrdp](https://github.com/clintcan/macrdp) to add compatibility with macOS Monterey 12 on Intel / x86_64.**
+
+This fork aims to provide standard RDP access and bidirectional text clipboard
+synchronization for Monterey machines, including virtual machines accessed through
+Apache Guacamole. It replaces the modern capture dependency with a CoreGraphics
+backend and provides a separate Intel build targeting macOS 12.
+
+**Validation so far:** Intel compilation, CLI startup on the build host, one
+capture damage test and 14 in-memory RDP connection tests pass. Actual Monterey
+capture, remote input and clipboard interoperability through Guacamole are
+**not yet verified**. This is an experimental port, not a validated release.
+
+See [Monterey build, limitations and acceptance checks](docs/MONTEREY.md).
+The original documentation follows for reference; its feature and support claims
+refer to the upstream project. Original authors and licenses are preserved.
+
+---
+
 # macrdp
 
 [![Latest release](https://img.shields.io/github/v/release/clintcan/macrdp?sort=semver&label=release)](https://github.com/clintcan/macrdp/releases/latest)

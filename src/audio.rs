@@ -15,7 +15,7 @@ use ironrdp_rdpsnd::pdu::{AudioFormat, WaveFormat};
 use ironrdp_rdpsnd::server::{NegotiatedFormat, RdpsndError, RdpsndServerHandler};
 // Only the macOS capture path ships waves via the unified ServerEvent fallback;
 // on the Linux cross-compile stub this name is unused.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 use ironrdp_rdpsnd::server::RdpsndServerMessage;
 use ironrdp_server::{AudioWave, ServerEvent, ServerEventSender, SoundServerFactory};
 use tokio::sync::mpsc;
@@ -255,7 +255,7 @@ impl RdpsndServerHandler for MacRdpsndBackend {
         std::thread::Builder::new()
             .name(format!("macrdp-audio-{my_gen}"))
             .spawn(move || {
-                #[cfg(target_os = "macos")]
+                #[cfg(all(target_os = "macos", not(feature = "monterey")))]
                 boost_audio_qos();
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -307,7 +307,7 @@ impl RdpsndServerHandler for MacRdpsndBackend {
 /// so the scheduler keeps us runnable even when a parallel cargo build pins
 /// every other thread; the audio pipeline then never starves long enough
 /// for the vendor-server lag tracker to declare a writer stall.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 fn boost_audio_qos() {
     use std::os::raw::{c_int, c_uint};
     const QOS_CLASS_USER_INTERACTIVE: c_uint = 0x21;
@@ -319,7 +319,7 @@ fn boost_audio_qos() {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 #[allow(clippy::too_many_arguments)]
 async fn capture_loop(
     sender: Sender,
@@ -770,7 +770,7 @@ async fn capture_loop(
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), feature = "monterey"))]
 #[allow(clippy::too_many_arguments)]
 async fn capture_loop(
     _sender: Sender,
@@ -790,7 +790,7 @@ async fn capture_loop(
 /// Handles both planar (one buffer per channel) and interleaved (single buffer
 /// with `number_channels` channels) layouts; a mono source is duplicated. The
 /// result feeds the rubato resampler.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 fn float_list_to_planar_f32_stereo(
     list: &screencapturekit::cm::AudioBufferList,
 ) -> (Vec<f32>, Vec<f32>) {
@@ -820,7 +820,7 @@ fn float_list_to_planar_f32_stereo(
 }
 
 /// Pull the first two channels out of an interleaved float32 buffer.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 fn deinterleave_first_two_channels(bytes: &[u8], channels: usize) -> (Vec<f32>, Vec<f32>) {
     let frame_bytes = channels * 4;
     if frame_bytes == 0 {
@@ -837,18 +837,18 @@ fn deinterleave_first_two_channels(bytes: &[u8], channels: usize) -> (Vec<f32>, 
     (left, right)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
     bytes.chunks_exact(4).map(read_f32_le).collect()
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 fn read_f32_le(b: &[u8]) -> f32 {
     f32::from_bits(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
 /// Interleave two planar float32 channels into a 16-bit LE stereo PCM payload.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 fn planar_f32_to_interleaved_i16(planar: &[Vec<f32>]) -> Vec<u8> {
     if planar.len() < 2 {
         return Vec::new();
@@ -862,7 +862,7 @@ fn planar_f32_to_interleaved_i16(planar: &[Vec<f32>]) -> Vec<u8> {
     out
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "monterey")))]
 fn float_to_i16(v: f32) -> i16 {
     let clamped = v.clamp(-1.0, 1.0);
     (clamped * 32767.0).round() as i16

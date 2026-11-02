@@ -14,6 +14,16 @@ fn main() {
         return;
     }
 
+    if std::env::var_os("CARGO_FEATURE_MONTEREY").is_some() {
+        println!("cargo:rerun-if-changed=src/capture/monterey.c");
+        cc::Build::new()
+            .file("src/capture/monterey.c")
+            .flag("-mmacosx-version-min=12.0")
+            .compile("macrdp_monterey_capture");
+        println!("cargo:rustc-link-lib=framework=CoreGraphics");
+        return;
+    }
+
     // Compile the USB-redirection Obj-C shim (Phase-1b UserHCI spike) and link
     // the public IOUSBHost framework. macOS-only; the module's non-macOS stub
     // never references the extern, so Linux CI builds without any of this.

@@ -2923,8 +2923,12 @@ impl RdpServer {
                 let (data, ts, duration_ms) = match audio_receiver.recv().await {
                     Some(wave) => wave,
                     None => {
-                        debug!("audio channel closed; stopping audio dispatch");
-                        break Ok(RunState::Disconnect);
+                        debug!("audio channel closed; leaving the session active without audio");
+                        // No sound factory means no sender. This optional channel
+                        // closing must not win the session's select and disconnect
+                        // display, input and clipboard. Other tasks own shutdown.
+                        std::future::pending::<()>().await;
+                        unreachable!("pending never completes");
                     }
                 };
 

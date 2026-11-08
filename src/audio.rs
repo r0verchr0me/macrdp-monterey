@@ -7,8 +7,8 @@
 //! ship via `RdpsndServerMessage::Wave`.
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 use ironrdp_rdpsnd::pdu::{AudioFormat, WaveFormat};
@@ -332,7 +332,7 @@ async fn capture_loop(
     aac_bitrate: u32,
     target_display_id: Option<u32>,
 ) -> anyhow::Result<()> {
-    use anyhow::{anyhow, Context};
+    use anyhow::{Context, anyhow};
     use rubato::Resampler;
     use screencapturekit::async_api::{AsyncSCShareableContent, AsyncSCStream};
     use screencapturekit::prelude::{SCContentFilter, SCStreamConfiguration, SCStreamOutputType};
@@ -770,7 +770,7 @@ async fn capture_loop(
     Ok(())
 }
 
-#[cfg(any(not(target_os = "macos"), feature = "monterey"))]
+#[cfg(not(target_os = "macos"))]
 #[allow(clippy::too_many_arguments)]
 async fn capture_loop(
     _sender: Sender,
@@ -891,4 +891,84 @@ mod tests {
         assert_eq!(pcm_only.len(), 1);
         assert_eq!(pcm_only[0].format, WaveFormat::PCM);
     }
+}
+
+#[cfg(all(target_os = "macos", feature = "monterey"))]
+#[allow(clippy::too_many_arguments)]
+async fn capture_loop(
+    _sender: Sender,
+    audio_sender: AudioSender,
+    generation: Arc<AtomicU64>,
+    my_gen: u64,
+    suppressed: Option<Arc<AtomicBool>>,
+    mute: bool,
+    _aac: bool,
+    _bitrate: u32,
+    _display: Option<u32>,
+) -> anyhow::Result<()> {
+    use std::ffi::c_void;
+    unsafe extern "C" {
+        fn macrdp_audio_open(
+            sink: extern "C" fn(*mut c_void, *const u8, u32),
+            ctx: *mut c_void,
+            error: *mut i32,
+        ) -> *mut c_void;
+        fn macrdp_audio_close(capture: *mut c_void);
+    }
+    extern "C" fn receive(ctx: *mut c_void, data: *const u8, len: u32) {
+        let sender = unsafe { &*(ctx as *const mpsc::Sender<Vec<u8>>) };
+        let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
+        let _ = sender.try_send(bytes.to_vec());
+    }
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(8);
+    let mut tx = Box::new(tx);
+    let mut error = 0;
+    let capture = unsafe {
+        macrdp_audio_open(
+            receive,
+            (&mut *tx as *mut mpsc::Sender<Vec<u8>>).cast(),
+            &mut error,
+        )
+    };
+    anyhow::ensure!(
+        !capture.is_null(),
+        "BlackHole 2ch capture failed ({error}); install BlackHole, select it as system output and allow audio input access"
+    );
+    struct Guard(*mut c_void);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            unsafe { macrdp_audio_close(self.0) };
+        }
+    }
+    let _guard = Guard(capture);
+    let mut frames: u64 = 0;
+    loop {
+        if generation.load(Ordering::SeqCst) != my_gen {
+            break;
+        }
+        let data =
+            match tokio::time::timeout(std::time::Duration::from_millis(250), rx.recv()).await {
+                Ok(Some(data)) => data,
+                Ok(None) => break,
+                Err(_) => continue,
+            };
+        let ts = (frames * 1000 / 44100) as u32;
+        frames += data.len() as u64 / 4;
+        if mute
+            && suppressed
+                .as_ref()
+                .is_some_and(|f| f.load(Ordering::Relaxed))
+        {
+            continue;
+        }
+        let sender = audio_sender.lock().unwrap().clone();
+        if let Some(sender) = sender {
+            if let Err(mpsc::error::TrySendError::Closed(_)) = sender.try_send((data, ts, None)) {
+                break;
+            }
+        }
+    }
+    drop(_guard);
+    drop(tx);
+    Ok(())
 }

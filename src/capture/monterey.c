@@ -25,7 +25,7 @@ int macrdp_monterey_capture(uint32_t display, uint32_t width, uint32_t height,
         target = CGRectMake((width - iw * scale) / 2, (height - ih * scale) / 2,
                             iw * scale, ih * scale);
     }
-    CGContextSetInterpolationQuality(context, kCGInterpolationLow);
+    CGContextSetInterpolationQuality(context, kCGInterpolationHigh);
     CGContextDrawImage(context, target, image);
     CGContextRelease(context);
     CGImageRelease(image);

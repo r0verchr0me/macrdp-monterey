@@ -3629,11 +3629,7 @@ async fn async_main() -> Result<()> {
         .with_input_handler(input_handler)
         .with_display_handler(display)
         .with_cliprdr_factory(Some(cliprdr))
-        .with_sound_factory(if cfg!(feature = "monterey") {
-            None
-        } else {
-            Some(sound)
-        })
+        .with_sound_factory(Some(sound))
         .with_rdpdr_factory(rdpdr_factory)
         .with_usb_factory(usb_factory)
         .with_camera_factory(camera_factory)

@@ -37,9 +37,9 @@ monterey` to exclude ScreenCaptureKit, including its newer Swift runtime depende
   upstream input; debounced RDP resize reactivates the display stream.
 - Input, TLS/NLA local-account authentication and NSPasteboard/CLIPRDR remain
   upstream implementations. This bypasses the Apple VNC clipboard limitation.
-- System-audio capture, microphone, camera, USB redirection, H.264 and private
-  virtual-display modes are not supported in this build. Unsupported options fail
-  at startup. This is a software capture path, not a graphics driver.
+- System audio can be sent as stereo PCM over RDPSND using BlackHole 2ch.
+  Microphone redirection, camera, USB redirection, H.264 and private
+  virtual-display modes remain unsupported.
 
 ## First run inside the guest
 
@@ -51,7 +51,7 @@ From Terminal, as the guest user, run:
 ```sh
 /path/to/macrdpMonterey.app/Contents/MacOS/macrdp \
   --bind 192.0.2.10:3390 --username user \
-  --width 1280 --height 720 --fps 15 --no-rich-clipboard
+  --width 1920 --height 1080 --fps 15 --no-rich-clipboard
 ```
 
 The password prompt expects the existing local macOS account password. Do not put
@@ -67,7 +67,13 @@ Create a separate connection named `macOS Monterey RDP (test)`:
 - Protocol: RDP; host `192.0.2.10`; port `3390`; username `user`.
 - Security: NLA; existing local account password entered by the user.
 - Clipboard copy/paste enabled; test plain Unicode text before rich formats.
-- Start with 1280×720 and bitmap codecs, without H.264 or audio.
+- Match the server dimensions to the guest display. For sharp text, enable
+  lossless compression and set the Guacamole display zoom to 100%.
+- To forward sound, install [BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole)
+  in the guest and select it as the macOS sound output. Leave Guacamole’s
+  **Disable audio** option unchecked. macOS uses its microphone permission
+  prompt to authorize the virtual audio input. If capture has already timed
+  out while waiting for approval, reconnect Guacamole after approving it.
 - Trust the server certificate after checking its fingerprint. For production,
   use a trusted certificate via upstream TLS certificate options.
 
@@ -95,4 +101,7 @@ interactive acceptance checks pass.
 - CLI startup (`--help`) on the build Mac via Rosetta: passed.
 - Changed-tile / edge capture test: 1 passed.
 - In-memory RDP connection tests: 14 passed.
-- Monterey guest capture, input and Guacamole clipboard tests: pending.
+- Monterey 12.7.6 in Proxmox: RDP desktop, input, and plain text clipboard
+  in both directions verified in Guacamole. Full HD verified at 100% zoom.
+- BlackHole system audio: RDP traffic observed after granting access and
+  reconnecting. Audible playback in the browser still needs confirmation.

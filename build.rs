@@ -21,6 +21,12 @@ fn main() {
             .flag("-mmacosx-version-min=12.0")
             .compile("macrdp_monterey_capture");
         println!("cargo:rustc-link-lib=framework=CoreGraphics");
+        println!("cargo:rerun-if-changed=src/audio/monterey.c");
+        cc::Build::new()
+            .file("src/audio/monterey.c")
+            .flag("-mmacosx-version-min=12.0")
+            .compile("macrdp_monterey_audio");
+        println!("cargo:rustc-link-lib=framework=AudioToolbox");
         return;
     }
 

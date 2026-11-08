@@ -25,6 +25,7 @@ plist = {
     'CFBundleShortVersionString': '0.9.11-monterey.1',
     'LSMinimumSystemVersion': '12.0',
     'LSUIElement': True,
+    'NSMicrophoneUsageDescription': 'Capture system sound from the BlackHole virtual audio device for RDP.',
     'NSAppleEventsUsageDescription': 'Forward remote keyboard shortcuts at the user request.',
 }
 (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps(plist))

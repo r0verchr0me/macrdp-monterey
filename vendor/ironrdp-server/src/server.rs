@@ -22,7 +22,7 @@ pub use ironrdp_pdu::rdp::client_info::Credentials;
 use ironrdp_pdu::rdp::headers::{ServerDeactivateAll, ShareControlPdu};
 use ironrdp_pdu::x224::X224;
 use ironrdp_pdu::{Action, PduResult, decode_err, mcs, nego, rdp};
-use ironrdp_svc::{ChannelFlags, StaticChannelId, StaticChannelSet, SvcProcessor, server_encode_svc_messages};
+use ironrdp_svc::{ChannelFlags, StaticChannelId, StaticChannelSet, SvcMessage, SvcProcessor, server_encode_svc_messages};
 use ironrdp_tokio::{FramedRead, FramedWrite, TokioFramed, split_tokio_framed, unsplit_tokio_framed};
 use rdpsnd::server::{RdpsndServer, RdpsndServerMessage};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
@@ -42,6 +42,22 @@ use crate::encoder::{UpdateEncoder, UpdateEncoderCodecs};
 use crate::gfx::{EgfxServerMessage, GfxServerFactory};
 use crate::handler::RdpServerInputHandler;
 use crate::{SoundServerFactory, builder, capabilities};
+
+/// This IronRDP revision serializes WaveInfo and Wave into one SVC message.
+/// MS-RDPEA and Guacamole's pre-v8 receiver expect separate messages.
+fn split_legacy_audio_wave(mut combined: Vec<u8>) -> Result<Vec<SvcMessage>> {
+    const WAVE_INFO_LEN: usize = 16; // 4-byte header + 12-byte WaveInfo
+    anyhow::ensure!(
+        combined.len() > WAVE_INFO_LEN + 4 && combined[0] == 0x02,
+        "invalid legacy audio wave"
+    );
+    let wave = combined.split_off(WAVE_INFO_LEN);
+    // Wave's four padding bytes replace the first four PCM bytes carried
+    // by WaveInfo. Its length is therefore the complete sample length.
+    let body_size = u16::try_from(wave.len() + 8)?;
+    combined[2..4].copy_from_slice(&body_size.to_le_bytes());
+    Ok(vec![combined.into(), wave.into()])
+}
 
 /// TCP listen backlog size for the RDP server socket.
 const LISTENER_BACKLOG: u32 = 1024;
@@ -3009,11 +3025,17 @@ impl RdpServer {
                             continue;
                         }
                     };
+                    let mut messages: Vec<SvcMessage> = msgs.into();
+                    if rdpsnd.version()? < rdpsnd::pdu::Version::V8 {
+                        anyhow::ensure!(messages.len() == 1, "unexpected legacy audio wave count");
+                        let wave = messages.pop().context("missing legacy audio wave")?;
+                        messages = split_legacy_audio_wave(wave.encode_unframed_pdu()?)?;
+                    }
                     let Some(channel_id) = this.get_channel_id_by_type::<RdpsndServer>() else {
                         warn!("rdpsnd SVC channel id missing");
                         continue;
                     };
-                    server_encode_svc_messages(msgs.into(), channel_id, user_channel_id)?
+                    server_encode_svc_messages(messages, channel_id, user_channel_id)?
                 };
                 drop(this);
 

@@ -130,18 +130,25 @@ impl RdpServerDisplayUpdates for LegacyUpdates {
                 self.seeded = false; // re-send a full frame after resuming
                 continue;
             }
-            // SAFETY: the C function writes at most length bytes into this owned
-            // buffer, retains no pointers, and checks the supplied dimensions.
-            let ok = unsafe {
-                macrdp_monterey_capture(
-                    self.display,
-                    self.width.into(),
-                    self.height.into(),
-                    self.frame.as_mut_ptr(),
-                    self.frame.len(),
-                    self.letterbox.into(),
-                )
-            };
+            // WindowServer readback can block. The RDP loop polls display,
+            // audio and input together, so do the readback off that loop.
+            let (display, width, height, letterbox) =
+                (self.display, self.width, self.height, self.letterbox);
+            let mut frame = std::mem::take(&mut self.frame);
+            let (frame, ok) = tokio::task::spawn_blocking(move || {
+                // SAFETY: the C function checks the dimensions and length
+                // and retains no pointer into the owned buffer.
+                let ok = unsafe {
+                    macrdp_monterey_capture(
+                        display, width.into(), height.into(), frame.as_mut_ptr(),
+                        frame.len(), letterbox.into(),
+                    )
+                };
+                (frame, ok)
+            })
+            .await
+            .context("Monterey capture worker failed")?;
+            self.frame = frame;
             if ok == 0 {
                 bail!("CoreGraphics capture failed: grant Screen Recording, log in locally and restart macrdp");
             }

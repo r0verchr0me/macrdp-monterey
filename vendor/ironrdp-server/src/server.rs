@@ -2862,6 +2862,10 @@ impl RdpServer {
                         {
                             (RunState::Continue, enc) => {
                                 encoder = enc;
+                                // A full frame can queue dozens of tiles whose
+                                // writes all complete immediately. Give the audio
+                                // and input branches a turn between updates.
+                                tokio::task::yield_now().await;
                                 continue;
                             }
                             (state, _) => {

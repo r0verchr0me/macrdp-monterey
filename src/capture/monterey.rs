@@ -80,8 +80,9 @@ impl LegacyUpdates {
     }
 }
 
-// Compare bounded tiles and transmit only changed regions. Split large updates
-// using the upstream strip limit so Guacamole/FreeRDP never receive oversized PDUs.
+// Compare small tiles, then merge adjacent changes into bounded rectangles.
+// This retains fine-grained damage detection while reducing encoder calls and
+// socket writes for scrolling, window moves and the initial full frame.
 fn changed_tiles(
     current: &[u8],
     previous: &[u8],
@@ -90,7 +91,7 @@ fn changed_tiles(
     seeded: bool,
 ) -> Vec<(u16, u16, u16, u16)> {
     let stride = usize::from(width) * 4;
-    let mut rectangles = Vec::new();
+    let mut rectangles: Vec<(u16, u16, u16, u16)> = Vec::new();
     for y in (0..height).step_by(64) {
         for x in (0..width).step_by(128) {
             let w = 128.min(width - x);
@@ -102,6 +103,12 @@ fn changed_tiles(
                     current[start..end] != previous[start..end]
                 });
             if changed {
+                if let Some((left, top, span, _)) = rectangles.last_mut() {
+                    if *top == y && *left + *span == x && *span + w <= 512 {
+                        *span += w;
+                        continue;
+                    }
+                }
                 rectangles.push((x, y, w, h));
             }
         }
@@ -193,12 +200,7 @@ mod tests {
         let old = frame.clone();
         assert_eq!(
             changed_tiles(&frame, &old, 130, 65, false),
-            vec![
-                (0, 0, 128, 64),
-                (128, 0, 2, 64),
-                (0, 64, 128, 1),
-                (128, 64, 2, 1)
-            ]
+            vec![(0, 0, 130, 64), (0, 64, 130, 1)]
         );
         assert!(changed_tiles(&frame, &old, 130, 65, true).is_empty());
         frame[(64 * 130 + 129) * 4] = 255;

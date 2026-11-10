@@ -1,0 +1,6 @@
+{
+  "guacamoleVersion": "1.6.0",
+  "name": "macrdp native paste",
+  "namespace": "macrdp-native-paste",
+  "js": ["native-paste.js"]
+}

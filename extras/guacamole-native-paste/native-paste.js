@@ -18,6 +18,7 @@
             document.body.appendChild(sink);
             let armed = null;
             let restoreFocus = null;
+            let pendingWindowsMeta = null;
             let windowsPasteShortcut = false;
             let armTimer;
             let pasteTimer;
@@ -49,27 +50,43 @@
                     target.style.height === '0px' && target.parentElement === document.body;
             }
 
+            function isRemoteTarget(target) {
+                return target === sink || isGuacSink(target) ||
+                    !target.closest?.('input,textarea,select,[contenteditable],.menu');
+            }
+
+            function isPasteKey(event) {
+                return event.code === 'KeyV' || event.key?.toLowerCase() === 'v';
+            }
+
             $window.addEventListener('keydown', event => {
                 if (!event.isTrusted)
                     return;
-                if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey ||
-                    event.key.toLowerCase() !== 'v') {
-                    if (event.key !== 'Meta')
-                        windowsPasteShortcut = false;
-                    return;
-                }
                 const client = activeClient();
                 const target = event.target;
-                // Guacamole deliberately focuses its zero-sized textarea to
-                // receive keyboard input. Leave visible local fields alone.
-                if (!client || (!isGuacSink(target) && target !== sink &&
-                    target.closest?.('input,textarea,select,[contenteditable],.menu')))
+                if (!client || !isRemoteTarget(target))
                     return;
+
+                const isWindows = windowsConnectionIds.has(client.id);
+                if (isWindows && event.key === 'Meta' && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+                    // Keep Command local until we know whether this is a paste.
+                    // Guacamole infers the held modifier on other shortcuts.
+                    if (!event.repeat && !windowsPasteShortcut)
+                        pendingWindowsMeta = client;
+                    event.stopImmediatePropagation();
+                    return;
+                }
+
+                pendingWindowsMeta = null;
+                if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !isPasteKey(event)) {
+                    windowsPasteShortcut = false;
+                    return;
+                }
 
                 // Leave the browser's default paste action enabled. A focused
                 // textarea also gives WebKit an editable target for that action.
                 event.stopImmediatePropagation();
-                windowsPasteShortcut = windowsConnectionIds.has(client.id);
+                windowsPasteShortcut = isWindows;
                 if (document.activeElement !== sink)
                     restoreFocus = document.activeElement;
                 armed = client;
@@ -79,18 +96,31 @@
                 armTimer = $window.setTimeout(disarm, 1000);
             }, true);
 
-            $window.addEventListener('keyup', event => {
-                if (!event.isTrusted || !windowsPasteShortcut)
-                    return;
-                // Guacamole defers Meta until the next key event. Keep this
-                // paste chord from being interpreted as a Windows-logo tap.
-                if (event.key.toLowerCase() === 'v' || event.key === 'Meta')
+            $window.addEventListener('keypress', event => {
+                if (event.isTrusted && windowsPasteShortcut && isPasteKey(event))
                     event.stopImmediatePropagation();
-                if (event.key === 'Meta')
-                    windowsPasteShortcut = false;
+            }, true);
+
+            $window.addEventListener('keyup', event => {
+                if (!event.isTrusted)
+                    return;
+                if (windowsPasteShortcut && (isPasteKey(event) || event.key === 'Meta'))
+                    event.stopImmediatePropagation();
+                if (event.key !== 'Meta')
+                    return;
+                const client = pendingWindowsMeta;
+                pendingWindowsMeta = null;
+                windowsPasteShortcut = false;
+                if (client && client === activeClient() && isRemoteTarget(event.target)) {
+                    event.stopImmediatePropagation();
+                    const logo = event.location === 2 ? 0xFFEC : command;
+                    client.client.sendKeyEvent(1, logo);
+                    client.client.sendKeyEvent(0, logo);
+                }
             }, true);
 
             $window.addEventListener('blur', () => {
+                pendingWindowsMeta = null;
                 windowsPasteShortcut = false;
                 disarm();
                 $window.clearTimeout(pasteTimer);

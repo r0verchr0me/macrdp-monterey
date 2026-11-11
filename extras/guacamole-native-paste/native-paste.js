@@ -15,6 +15,7 @@
             document.body.appendChild(sink);
             let armed = null;
             let restoreFocus = null;
+            let armTimer;
             let pasteTimer;
 
             function activeClient() {
@@ -26,10 +27,18 @@
             }
 
             function disarm() {
+                $window.clearTimeout(armTimer);
                 armed = null;
                 if (document.activeElement === sink)
-                    (restoreFocus?.isConnected ? restoreFocus : document.body).focus();
+                    (restoreFocus?.isConnected ? restoreFocus : document.body)
+                        .focus({ preventScroll: true });
                 restoreFocus = null;
+            }
+
+            function isGuacSink(target) {
+                return target.tagName === 'TEXTAREA' &&
+                    target.style.position === 'fixed' && target.style.width === '0px' &&
+                    target.style.height === '0px' && target.parentElement === document.body;
             }
 
             $window.addEventListener('keydown', event => {
@@ -40,37 +49,39 @@
                 const target = event.target;
                 // Guacamole deliberately focuses its zero-sized textarea to
                 // receive keyboard input. Leave visible local fields alone.
-                const isGuacSink = target.tagName === 'TEXTAREA' &&
-                    target.style.position === 'fixed' && target.style.width === '0px' &&
-                    target.style.height === '0px' && target.parentElement === document.body;
-                if (!client || (!isGuacSink && target !== sink &&
+                if (!client || (!isGuacSink(target) && target !== sink &&
                     target.closest?.('input,textarea,select,[contenteditable],.menu')))
                     return;
 
                 // Leave the browser's default paste action enabled. A focused
                 // textarea also gives WebKit an editable target for that action.
                 event.stopImmediatePropagation();
-                restoreFocus = document.activeElement;
+                if (document.activeElement !== sink)
+                    restoreFocus = document.activeElement;
                 armed = client;
-                sink.focus({ preventScroll: true });
+                if (!isGuacSink(target))
+                    sink.focus({ preventScroll: true });
+                $window.clearTimeout(armTimer);
+                armTimer = $window.setTimeout(disarm, 1000);
             }, true);
 
-            $window.addEventListener('keyup', event => {
-                if (armed && event.key.toLowerCase() === 'v')
-                    disarm();
-            }, true);
             $window.addEventListener('blur', () => {
                 disarm();
                 $window.clearTimeout(pasteTimer);
             });
 
-            sink.addEventListener('paste', event => {
+            $window.addEventListener('paste', event => {
+                const client = activeClient();
+                const target = event.target;
+                const isArmedTarget = armed === client && (target === sink || target === document.body);
+                if (!event.isTrusted || !client || (!isArmedTarget && !isGuacSink(target)))
+                    return;
+
                 event.preventDefault();
-                event.stopPropagation();
-                const client = armed;
-                disarm();
+                event.stopImmediatePropagation();
                 const text = event.clipboardData?.getData('text/plain');
-                if (!event.isTrusted || !text || !client || client !== activeClient())
+                disarm();
+                if (!text)
                     return;
 
                 $window.clearTimeout(pasteTimer);
@@ -91,6 +102,6 @@
                     client.client.sendKeyEvent(0, 0x76);
                     client.client.sendKeyEvent(0, cmd);
                 }, 250);
-            });
+            }, true);
         }]);
 })();

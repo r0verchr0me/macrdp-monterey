@@ -2,24 +2,32 @@
 (() => {
     'use strict';
 
-    // Substitute the base64url ID from the Guacamole connection URL when packaging.
-    const connectionId = '@MACRDP_CONNECTION_ID@';
+    // Set the connection IDs from the Guacamole URLs when packaging.
+    const macConnectionId = '@MACRDP_CONNECTION_ID@';
+    const windowsConnectionIds = new Set('@WINDOWS_CONNECTION_IDS@'.split(','));
+    const command = 0xFFEB;
+    const control = 0xFFE3;
 
     angular.module('client').run(['$window', '$location', 'guacClientManager',
         function ($window, $location, manager) {
             const document = $window.document;
             const sink = document.createElement('textarea');
-            sink.setAttribute('aria-label', 'Paste text into macOS');
+            sink.setAttribute('aria-label', 'Paste text into remote desktop');
             sink.tabIndex = -1;
             sink.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
             document.body.appendChild(sink);
             let armed = null;
             let restoreFocus = null;
+            let windowsPasteShortcut = false;
             let armTimer;
             let pasteTimer;
 
             function activeClient() {
-                if ($location.path() !== '/client/' + connectionId)
+                const route = $location.path().match(/^\/client\/([^/]+)$/);
+                if (!route)
+                    return null;
+                const connectionId = route[1];
+                if (connectionId !== macConnectionId && !windowsConnectionIds.has(connectionId))
                     return null;
                 const client = manager.getManagedClients()[connectionId];
                 return client?.clientProperties.focused &&
@@ -42,9 +50,14 @@
             }
 
             $window.addEventListener('keydown', event => {
-                if (!event.isTrusted || !event.metaKey || event.ctrlKey || event.altKey ||
-                    event.shiftKey || event.key.toLowerCase() !== 'v')
+                if (!event.isTrusted)
                     return;
+                if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey ||
+                    event.key.toLowerCase() !== 'v') {
+                    if (event.key !== 'Meta')
+                        windowsPasteShortcut = false;
+                    return;
+                }
                 const client = activeClient();
                 const target = event.target;
                 // Guacamole deliberately focuses its zero-sized textarea to
@@ -56,6 +69,7 @@
                 // Leave the browser's default paste action enabled. A focused
                 // textarea also gives WebKit an editable target for that action.
                 event.stopImmediatePropagation();
+                windowsPasteShortcut = windowsConnectionIds.has(client.id);
                 if (document.activeElement !== sink)
                     restoreFocus = document.activeElement;
                 armed = client;
@@ -65,7 +79,19 @@
                 armTimer = $window.setTimeout(disarm, 1000);
             }, true);
 
+            $window.addEventListener('keyup', event => {
+                if (!event.isTrusted || !windowsPasteShortcut)
+                    return;
+                // Guacamole defers Meta until the next key event. Keep this
+                // paste chord from being interpreted as a Windows-logo tap.
+                if (event.key.toLowerCase() === 'v' || event.key === 'Meta')
+                    event.stopImmediatePropagation();
+                if (event.key === 'Meta')
+                    windowsPasteShortcut = false;
+            }, true);
+
             $window.addEventListener('blur', () => {
+                windowsPasteShortcut = false;
                 disarm();
                 $window.clearTimeout(pasteTimer);
             });
@@ -92,15 +118,15 @@
 
                 // guacd still needs to transfer the data over CLIPRDR after
                 // the web stream ends. Allow that exchange to complete before
-                // sending the guest's Command+V shortcut on this LAN setup.
+                // sending the guest's paste shortcut on this LAN setup.
                 pasteTimer = $window.setTimeout(() => {
                     if (client !== activeClient())
                         return;
-                    const cmd = 0xFFEB; // Super_L, mapped to Command by macrdp
-                    client.client.sendKeyEvent(1, cmd);
+                    const modifier = windowsConnectionIds.has(client.id) ? control : command;
+                    client.client.sendKeyEvent(1, modifier);
                     client.client.sendKeyEvent(1, 0x76);
                     client.client.sendKeyEvent(0, 0x76);
-                    client.client.sendKeyEvent(0, cmd);
+                    client.client.sendKeyEvent(0, modifier);
                 }, 250);
             }, true);
         }]);
